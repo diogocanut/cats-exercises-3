@@ -10,7 +10,7 @@ object Worker extends IOApp {
 
   type Worker[A, B, F[_]] = A => F[B]
 
-  def mkWorker[F[_]: Async: Concurrent](id: Int)(implicit timer: Temporal[F]): F[Worker[Int, Int, F]] =
+  def mkWorker[F[_] : Async : Concurrent](id: Int)(implicit timer: Temporal[F]): F[Worker[Int, Int, F]] =
     Ref[F].of(0).map { counter =>
       def simulateWork: F[Unit] =
         Async[F].delay(50 + Random.nextInt(450)).map(_.millis).flatMap(timer.sleep)
@@ -18,19 +18,22 @@ object Worker extends IOApp {
       def report: F[Unit] =
         counter.get.flatMap(i => Concurrent[F].pure(println(s"Total processed by $id: $i")))
 
-      x => simulateWork >>
-        counter.update(_ + 1) >> report >>
-        Async[F].pure(x + 1)
+      x =>
+        simulateWork >>
+          counter.update(_ + 1) >> report >>
+          Async[F].pure(x + 1)
     }
 
   trait WorkerPool[A, B, F[_]] {
     def exec(a: A): F[B]
+
     def add(worker: Worker[A, B, F]): F[Unit]
+
     def removeAll: F[Unit]
   }
 
   object WorkerPool {
-    def of[A, B, F[_]: Async: Concurrent](fs: List[Worker[A, B, F]]): F[WorkerPool[A, B, F]] = {
+    def of[A, B, F[_] : Async : Concurrent](fs: List[Worker[A, B, F]]): F[WorkerPool[A, B, F]] = {
       for {
         ref <- Ref[F].of(fs)
         capacity = 100
@@ -48,10 +51,11 @@ object Worker extends IOApp {
 
         def removeAll: F[Unit] =
           ref.set(List.empty)
+
         private def putBack(worker: Worker[A, B, F]): F[Unit] =
           for {
             contains <- ref.get.map(_.contains(worker))
-              _        <- if (contains) queue.offer(worker) else Async[F].unit
+            _ <- if (contains) queue.offer(worker) else Async[F].unit
           } yield ()
       }
     }
@@ -65,6 +69,6 @@ object Worker extends IOApp {
   def run(args: List[String]): IO[ExitCode] =
     for {
       pool <- testPool
-      _    <- pool.exec(42).replicateA(20)
+      _ <- pool.exec(42).replicateA(20)
     } yield ExitCode.Success
 }
