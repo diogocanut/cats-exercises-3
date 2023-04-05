@@ -10,7 +10,9 @@ object Worker extends IOApp {
 
   type Worker[A, B, F[_]] = A => F[B]
 
-  def mkWorker[F[_] : Async : Concurrent](id: Int)(implicit timer: Temporal[F]): F[Worker[Int, Int, F]] =
+  def mkWorker[F[_]: Async: Concurrent](
+      id: Int
+  )(implicit timer: Temporal[F]): F[Worker[Int, Int, F]] =
     Ref[F].of(0).map { counter =>
       def simulateWork: F[Unit] =
         Async[F].delay(50 + Random.nextInt(450)).map(_.millis).flatMap(timer.sleep)
@@ -33,7 +35,7 @@ object Worker extends IOApp {
   }
 
   object WorkerPool {
-    def of[A, B, F[_] : Async : Concurrent](fs: List[Worker[A, B, F]]): F[WorkerPool[A, B, F]] = {
+    def of[A, B, F[_]: Async: Concurrent](fs: List[Worker[A, B, F]]): F[WorkerPool[A, B, F]] = {
       for {
         ref <- Ref[F].of(fs)
         capacity = 100
@@ -62,7 +64,8 @@ object Worker extends IOApp {
   }
 
   val testPool: IO[WorkerPool[Int, Int, IO]] =
-    List.range(0, 10)
+    List
+      .range(0, 10)
       .traverse(mkWorker[IO])
       .flatMap(WorkerPool.of[Int, Int, IO])
 
@@ -70,5 +73,8 @@ object Worker extends IOApp {
     for {
       pool <- testPool
       _ <- pool.exec(42).replicateA(20)
+      newWorker <- mkWorker[IO](10)
+      _ <- pool.add(newWorker)
+      _ <- pool.exec(42).replicateA(11)
     } yield ExitCode.Success
 }
